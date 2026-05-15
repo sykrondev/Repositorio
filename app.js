@@ -41,6 +41,7 @@ const status = $("#firebaseStatus");
 const addLinkBtn = $("#addLinkBtn");
 const addCategoryBtn = $("#addCategoryBtn");
 const editCategoryBtn = $("#editCategoryBtn");
+const notesToggleBtn = $("#notesToggleBtn");
 const logoutBtn = $("#logoutBtn");
 const adminLock = $("#adminLock");
 const loginMsg = $("#loginMsg");
@@ -49,10 +50,17 @@ const filtersEl = $("#filters");
 const categoryInput = $("#categoryInput");
 const linksRef = ref(db, "links");
 const categoriesRef = ref(db, "categories");
+const notesRef = ref(db, "notes");
 const musicPlayerEl = $("#musicPlayer");
 const ramValue = $("#ramValue");
 const ramStatus = $("#ramStatus");
 const ramBar = $("#ramBar");
+const notesWin = $("#notesWin");
+const noteForm = $("#noteForm");
+const noteTitle = $("#noteTitle");
+const noteContent = $("#noteContent");
+const notesList = $("#notesList");
+const pasteNoteBtn = $("#pasteNoteBtn");
 
 const baseCategories = [
   "misc",
@@ -69,6 +77,7 @@ const baseCategories = [
 let user = null;
 let liveLinks = [];
 let liveCategories = [];
+let liveNotes = [];
 let currentFilter = "todos";
 let editingId = null;
 let categoryEditorMode = "create";
@@ -110,6 +119,23 @@ onAuthStateChanged(auth, currentUser => {
 });
 
 /* Realtime Database */
+onValue(
+  notesRef,
+  snapshot => {
+    const data = snapshot.val();
+
+    liveNotes = data
+      ? Object.entries(data).map(([id, value]) => ({ id, ...value }))
+      : [];
+
+    renderNotes();
+  },
+  error => {
+    console.error(error);
+    renderNotes();
+  }
+);
+
 onValue(
   linksRef,
   snapshot => {
@@ -282,6 +308,91 @@ function filterButtonTemplate(label, value) {
   return `<button type="button" class="filter${active}" data-filter="${escapeAttr(value)}">${escapeHtml(label)}</button>`;
 }
 
+/* Notas */
+notesToggleBtn.addEventListener("click", () => {
+  notesWin.classList.toggle("hidden");
+  if (!notesWin.classList.contains("hidden")) {
+    renderNotes();
+    if (user) noteTitle.focus();
+  }
+});
+
+$("#closeNotes").addEventListener("click", event => {
+  event.preventDefault();
+  notesWin.classList.add("hidden");
+});
+
+pasteNoteBtn.addEventListener("click", async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      noteContent.value = text;
+      noteContent.focus();
+      noteContent.setSelectionRange(noteContent.value.length, noteContent.value.length);
+      showToast("Texto pegado desde el portapapeles.");
+    }
+  } catch (error) {
+    console.error(error);
+    showToast("No se pudo leer el portapapeles.");
+  }
+});
+
+noteForm.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  if (!user) {
+    alert("Debes iniciar sesión como admin.");
+    return;
+  }
+
+  const title = noteTitle.value.trim();
+  const content = noteContent.value.trim();
+
+  if (!title || !content) return;
+
+  await push(notesRef, {
+    title,
+    content,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+
+  noteForm.reset();
+  noteTitle.focus();
+  showToast("Nota guardada.");
+});
+
+notesList.addEventListener("click", async event => {
+  const copyButton = event.target.closest("[data-note-copy]");
+  const deleteButton = event.target.closest("[data-note-delete]");
+  const loadButton = event.target.closest("[data-note-load]");
+
+  if (copyButton) {
+    const note = liveNotes.find(item => item.id === copyButton.dataset.noteCopy);
+    if (!note) return;
+    await copyText(note.content);
+    showToast("Comando copiado.");
+    return;
+  }
+
+  if (loadButton) {
+    const note = liveNotes.find(item => item.id === loadButton.dataset.noteLoad);
+    if (!note) return;
+    noteTitle.value = note.title || "";
+    noteContent.value = note.content || "";
+    noteTitle.focus();
+    showToast("Nota cargada en el editor.");
+    return;
+  }
+
+  if (deleteButton) {
+    if (!user) return;
+    const ok = confirm("¿Borrar esta nota?");
+    if (!ok) return;
+    await remove(ref(db, `notes/${deleteButton.dataset.noteDelete}`));
+  }
+});
+
 /* Render */
 function renderLinks(links) {
   if (!links.length) {
@@ -320,6 +431,66 @@ function renderLinks(links) {
       ${items.map(linkTemplate).join("")}
     </section>
   `).join("");
+}
+
+function renderNotes() {
+  if (!notesList) return;
+
+  noteForm.classList.toggle("hidden", !user);
+
+  if (!liveNotes.length) {
+    notesList.innerHTML = `
+      <div class="empty notes-empty">
+        ${user ? "Todavía no hay notas. Guarda un comando para tenerlo a mano." : "No hay notas guardadas."}
+      </div>
+    `;
+    return;
+  }
+
+  notesList.innerHTML = liveNotes
+    .slice()
+    .sort((a, b) => timestampValue(b.createdAt) - timestampValue(a.createdAt))
+    .map(noteTemplate)
+    .join("");
+}
+
+function noteTemplate(note) {
+  const canManage = Boolean(user);
+
+  return `
+    <article class="note-item">
+      <div class="note-header">
+        <b>${escapeHtml(note.title || "sin titulo")}</b>
+        <div class="note-actions">
+          <button type="button" class="copy" data-note-copy="${escapeAttr(note.id)}">copiar</button>
+          <button type="button" data-note-load="${escapeAttr(note.id)}">cargar</button>
+          ${canManage ? `<button type="button" class="delete" data-note-delete="${escapeAttr(note.id)}">borrar</button>` : ""}
+        </div>
+      </div>
+      <pre>${escapeHtml(note.content || "")}</pre>
+    </article>
+  `;
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch (error) {
+    console.warn(error);
+  }
+
+  const fallback = document.createElement("textarea");
+  fallback.value = text;
+  fallback.setAttribute("readonly", "");
+  fallback.style.position = "fixed";
+  fallback.style.left = "-9999px";
+  document.body.appendChild(fallback);
+  fallback.select();
+  document.execCommand("copy");
+  document.body.removeChild(fallback);
 }
 
 function linkTemplate(link) {
@@ -911,6 +1082,10 @@ async function updateRamMonitor() {
 /* Helpers */
 function bytesToMb(bytes = 0) {
   return Math.round(bytes / 1024 / 1024);
+}
+
+function timestampValue(value) {
+  return typeof value === "number" ? value : 0;
 }
 
 function getPageMemoryPercent(usedMb) {

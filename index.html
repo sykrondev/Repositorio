@@ -86,6 +86,7 @@
       <button id="addCategoryBtn" type="button" class="add hidden">+ categoria</button>
       <button id="editCategoryBtn" type="button" class="add hidden">editar categorias</button>
       <button id="addLinkBtn" type="button" class="add hidden">+ link</button>
+      <button id="notesToggleBtn" type="button" class="add">notas</button>
     </div>
   </section>
 
@@ -184,6 +185,28 @@
         <span>volumen</span>
         <input id="volumeSlider" type="range" min="0" max="100" value="45" />
       </label>
+    </div>
+  </section>
+
+  <!-- Notas / Comandos -->
+  <section id="notesWin" class="notes-panel glass hidden draggable">
+    <div class="notes-head drag-handle">
+      <span>notas.terminal</span>
+      <button id="closeNotes" type="button">×</button>
+    </div>
+
+    <div class="notes-body">
+      <p class="notes-help">Guarda fragmentos, comandos PowerShell y texto para copiar/pegar rápido.</p>
+      <div id="notesList" class="notes-list"></div>
+
+      <form id="noteForm" class="note-form hidden">
+        <input id="noteTitle" placeholder="Titulo (ej: flush dns)" required />
+        <textarea id="noteContent" placeholder="Comando PowerShell..." rows="5" required></textarea>
+        <div class="note-form-actions">
+          <button id="pasteNoteBtn" type="button">pegar</button>
+          <button id="saveNoteBtn" type="submit">guardar nota</button>
+        </div>
+      </form>
     </div>
   </section>
 
