@@ -799,54 +799,13 @@ function makeDraggable(element) {
     const dy = event.clientY - startY;
 
     element.style.left = `${originX + dx}px`;
-
-/* Drag */
-document.querySelectorAll(".draggable").forEach(makeDraggable);
-
-function makeDraggable(element) {
-  const handle = element.querySelector(".drag-handle") || element;
-
-  let dragging = false;
-  let startX = 0;
-  let startY = 0;
-  let originX = 0;
-  let originY = 0;
-
-  handle.addEventListener("pointerdown", event => {
-    if (event.target.closest("button, input, select, textarea, a")) return;
-
-    dragging = true;
-
-    const rect = element.getBoundingClientRect();
-
-    startX = event.clientX;
-    startY = event.clientY;
-    originX = rect.left;
-    originY = rect.top;
-
-    element.style.position = "fixed";
-    element.style.left = `${originX}px`;
-    element.style.top = `${originY}px`;
-    element.style.right = "auto";
-    element.style.bottom = "auto";
-    element.style.transform = "none";
-
-    handle.setPointerCapture(event.pointerId);
-  });
-
-  handle.addEventListener("pointermove", event => {
-    if (!dragging) return;
-
-    const dx = event.clientX - startX;
-    const dy = event.clientY - startY;
-
-    element.style.left = `${originX + dx}px`;
     element.style.top = `${originY + dy}px`;
   });
 
   handle.addEventListener("pointerup", () => {
     dragging = false;
   });
+}
 
 /* Audio Local */
 const localAudio = $("#localAudio");
