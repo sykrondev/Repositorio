@@ -843,6 +843,10 @@ function playMusic() {
   });
 }
 
+window.addEventListener("load", () => {
+  setTimeout(playMusic, 1200);
+});
+
 $("#pauseBtn").addEventListener("click", () => {
   if (localAudio) localAudio.pause();
 });
