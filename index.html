@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TOSHIRO LINKS</title>
+  <link rel="stylesheet" href="./styles.css" />
+
+  <script type="importmap">
+  {
+    "imports": {
+      "firebase/app": "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js",
+      "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js",
+      "firebase/database": "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js",
+      "firebase/analytics": "https://www.gstatic.com/firebasejs/10.12.5/firebase-analytics.js"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <!-- Fondo retro PS1 / beach dark / agua -->
+  <div class="retro-sky"></div>
+  <div class="fog fog-a"></div>
+  <div class="fog fog-b"></div>
+  <div class="retro-sun"></div>
+  <div class="black-sea">
+    <div class="water water-a"></div>
+    <div class="water water-b"></div>
+    <div class="water water-c"></div>
+  </div>
+  <div class="ps1-shore"></div>
+  <div class="scanlines"></div>
+
+  <!-- Botón admin aesthetic -->
+  <button id="adminLock" type="button" title="Admin">
+    <svg class="sonic-icon" viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <linearGradient id="sonicBlue" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#7cf7ff"/>
+          <stop offset="55%" stop-color="#5aa2ff"/>
+          <stop offset="100%" stop-color="#7f7dff"/>
+        </linearGradient>
+      </defs>
+
+      <!-- púas -->
+      <path d="M17 18 L7 15 L14 27 Z" fill="url(#sonicBlue)" opacity=".95"/>
+      <path d="M22 12 L12 6 L18 22 Z" fill="url(#sonicBlue)" opacity=".95"/>
+      <path d="M31 10 L26 2 L29 18 Z" fill="url(#sonicBlue)" opacity=".95"/>
+      <path d="M45 12 L52 4 L46 20 Z" fill="url(#sonicBlue)" opacity=".95"/>
+      <path d="M51 19 L59 15 L50 28 Z" fill="url(#sonicBlue)" opacity=".95"/>
+
+      <!-- cara -->
+      <circle cx="32" cy="33" r="19" fill="url(#sonicBlue)"/>
+      <ellipse cx="32" cy="39" rx="11.5" ry="8.5" fill="#f4dcc2"/>
+
+      <!-- orejas -->
+      <path d="M21 18 L18 9 L27 16 Z" fill="url(#sonicBlue)"/>
+      <path d="M43 18 L46 9 L37 16 Z" fill="url(#sonicBlue)"/>
+      <path d="M21.8 16.5 L20 11.8 L24.8 15.2 Z" fill="#f4dcc2" opacity=".9"/>
+      <path d="M42.2 16.5 L44 11.8 L39.2 15.2 Z" fill="#f4dcc2" opacity=".9"/>
+
+      <!-- ojos -->
+      <ellipse cx="27.5" cy="30" rx="4" ry="6.4" fill="#ffffff"/>
+      <ellipse cx="36.5" cy="30" rx="4" ry="6.4" fill="#ffffff"/>
+      <ellipse cx="29.3" cy="30.5" rx="1.5" ry="2.8" fill="#101629"/>
+      <ellipse cx="34.7" cy="30.5" rx="1.5" ry="2.8" fill="#101629"/>
+
+      <!-- nariz -->
+      <ellipse cx="32" cy="38" rx="1.8" ry="1.2" fill="#1d2238"/>
+    </svg>
+  </button>
+
+  <header class="hero glass">
+    <p class="eyebrow">Hola Tonotos</p>
+    <h1>Repositorio</h1>
+    <p class="subtitle">Yamir Rojo</p>
+  </header>
+
+  <section class="toolbar glass">
+    <div id="filters" class="filters">
+    </div>
+
+    <div class="toolbar-actions">
+      <button id="addCategoryBtn" type="button" class="add hidden">+ categoria</button>
+      <button id="editCategoryBtn" type="button" class="add hidden">editar categorias</button>
+      <button id="addLinkBtn" type="button" class="add hidden">+ link</button>
+    </div>
+  </section>
+
+  <main id="repo" class="repo"></main>
+
+  <div id="sessionToast" class="session-toast hidden" role="status" aria-live="polite"></div>
+
+  <!-- Login -->
+  <section id="loginWin" class="modal glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span>admin.login</span>
+      <button id="closeLogin" type="button">×</button>
+    </div>
+
+    <form id="loginForm" class="modal-body">
+      <input id="emailInput" type="email" placeholder="email admin" required />
+      <input id="passwordInput" type="password" placeholder="password" required />
+      <button type="submit">entrar</button>
+      <small id="loginMsg">Ingresa para administrar links.</small>
+    </form>
+  </section>
+
+  <!-- Crear / editar link -->
+  <section id="linkEditor" class="modal glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span id="editorTitle">nuevo.link</span>
+      <button id="closeEditor" type="button">×</button>
+    </div>
+
+    <form id="linkForm" class="modal-body">
+      <input id="titleInput" placeholder="Nombre del sitio" required />
+      <input id="urlInput" placeholder="https://sitio.com" required />
+
+      <select id="categoryInput" required></select>
+
+      <button id="saveLinkBtn" type="submit">guardar</button>
+    </form>
+  </section>
+
+  <!-- Música -->
+  <!-- Crear categoria -->
+  <section id="categoryEditor" class="modal glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span id="categoryEditorTitle">nueva.categoria</span>
+      <button id="closeCategoryEditor" type="button">x</button>
+    </div>
+
+    <form id="categoryForm" class="modal-body">
+      <select id="categoryEditSelect" class="hidden"></select>
+      <input id="categoryNameInput" placeholder="Nombre de la categoria" required />
+      <button id="saveCategoryBtn" type="submit">guardar categoria</button>
+      <small id="categoryMsg">Se agregara a filtros y al selector de links.</small>
+    </form>
+  </section>
+
+  <!-- Administrar categorias -->
+  <section id="categoryManager" class="modal glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span>categorias</span>
+      <button id="closeCategoryManager" type="button">x</button>
+    </div>
+
+    <div class="modal-body">
+      <div id="categoryList" class="category-list"></div>
+
+      <form id="categoryRenameForm" class="category-rename hidden">
+        <input id="categoryRenameInput" placeholder="Nuevo nombre" required />
+        <button id="renameCategoryBtn" type="submit">actualizar categoria</button>
+        <small id="categoryManagerMsg">Elige una categoria para editar.</small>
+      </form>
+    </div>
+  </section>
+
+  <section id="musicPlayer" class="music glass draggable">
+    <div class="music-head drag-handle">
+      <span>dream.radio</span>
+      <span id="musicState">idle</span>
+    </div>
+
+    <div class="music-screen">
+      <img
+        id="ytThumb"
+        src="https://img.youtube.com/vi/ejztepv9AyY/hqdefault.jpg"
+        alt="Miniatura del video"
+      />
+      <button id="thumbPlayBtn" class="thumb-overlay" type="button" aria-label="Reproducir música">▶</button>
+      <div id="ytPlayer"></div>
+      <p>beach static signal</p>
+    </div>
+
+    <div class="music-controls">
+      <button id="playBtn" type="button">play</button>
+      <button id="pauseBtn" type="button">pause</button>
+
+      <label class="volume">
+        <span>volumen</span>
+        <input id="volumeSlider" type="range" min="0" max="100" value="45" />
+      </label>
+    </div>
+  </section>
+
+  <button id="logoutBtn" type="button" class="hidden">salir</button>
+
+  <section id="ramMonitor" class="ram-monitor glass" aria-label="Uso de memoria de la pagina">
+    <div class="ram-head">
+      <span>ram.signal</span>
+      <span id="ramStatus">scan</span>
+    </div>
+    <strong id="ramValue">-- MB</strong>
+    <div class="ram-track" aria-hidden="true">
+      <span id="ramBar"></span>
+    </div>
+  </section>
+
+  <footer>
+    <span id="firebaseStatus">Firebase: iniciando...</span>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
