@@ -20,18 +20,10 @@
 </head>
 
 <body>
-  <!-- Fondo retro PS1 / beach dark / agua -->
-  <div class="retro-sky"></div>
-  <div class="fog fog-a"></div>
-  <div class="fog fog-b"></div>
-  <div class="retro-sun"></div>
-  <div class="black-sea">
-    <div class="water water-a"></div>
-    <div class="water water-b"></div>
-    <div class="water water-c"></div>
-  </div>
-  <div class="ps1-shore"></div>
-  <div class="scanlines"></div>
+  <video id="pageBackgroundVideo" class="page-background-video" autoplay muted loop playsinline aria-hidden="true">
+    <source src="./loop.mp4" type="video/mp4" />
+  </video>
+
 
   <!-- Botón admin aesthetic -->
   <button id="adminLock" type="button" title="Admin">
@@ -160,8 +152,8 @@
     </div>
   </section>
 
-  <section id="musicPlayer" class="music glass draggable">
-    <div class="music-head drag-handle">
+  <section id="musicPlayer" class="music glass">
+    <div class="music-head">
       <span>dream.radio</span>
       <span id="musicState">idle</span>
     </div>
@@ -178,8 +170,8 @@
     </div>
 
     <div class="music-controls">
-      <button id="playBtn" type="button">play</button>
-      <button id="pauseBtn" type="button">pause</button>
+      <button id="playBtn" type="button" aria-label="Reproducir">▶️</button>
+      <button id="pauseBtn" type="button" aria-label="Pausar">⏸️</button>
 
       <label class="volume">
         <span>volumen</span>
@@ -212,17 +204,6 @@
 
   <button id="logoutBtn" type="button" class="hidden">salir</button>
 
-  <section id="ramMonitor" class="ram-monitor glass" aria-label="Uso de memoria de la pagina">
-    <div class="ram-head">
-      <span>ram.signal</span>
-      <span id="ramStatus">scan</span>
-    </div>
-    <strong id="ramValue">-- MB</strong>
-    <div class="ram-track" aria-hidden="true">
-      <span id="ramBar"></span>
-    </div>
-  </section>
-
   <footer>
     <span id="firebaseStatus">Firebase: iniciando...</span>
   </footer>
@@ -230,3 +211,4 @@
   <script type="module" src="./app.js"></script>
 </body>
 </html>
+

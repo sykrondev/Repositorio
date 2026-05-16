@@ -52,9 +52,7 @@ const linksRef = ref(db, "links");
 const categoriesRef = ref(db, "categories");
 const notesRef = ref(db, "notes");
 const musicPlayerEl = $("#musicPlayer");
-const ramValue = $("#ramValue");
-const ramStatus = $("#ramStatus");
-const ramBar = $("#ramBar");
+const pageBackgroundVideo = $("#pageBackgroundVideo");
 const notesWin = $("#notesWin");
 const noteForm = $("#noteForm");
 const noteTitle = $("#noteTitle");
@@ -83,10 +81,22 @@ let editingId = null;
 let categoryEditorMode = "create";
 let editingCategoryName = null;
 let managingCategoryName = null;
-let ramMonitorBusy = false;
 
-updateRamMonitor();
-setInterval(updateRamMonitor, 3000);
+if (pageBackgroundVideo) {
+  const restartBackgroundVideo = async () => {
+    try {
+      pageBackgroundVideo.pause();
+      pageBackgroundVideo.currentTime = 0;
+      const playPromise = pageBackgroundVideo.play();
+      if (playPromise?.catch) await playPromise.catch(() => {});
+    } catch (error) {
+      console.warn(error);
+    }
+  };
+
+  pageBackgroundVideo.addEventListener("loadedmetadata", restartBackgroundVideo, { once: true });
+  window.addEventListener("load", restartBackgroundVideo, { once: true });
+}
 
 /* Auth */
 onAuthStateChanged(auth, currentUser => {
@@ -930,6 +940,15 @@ logoutBtn.addEventListener("click", async () => {
 });
 
 /* Drag */
+if (musicPlayerEl) {
+  musicPlayerEl.classList.remove("draggable");
+  musicPlayerEl.style.left = "";
+  musicPlayerEl.style.top = "";
+  musicPlayerEl.style.right = "";
+  musicPlayerEl.style.bottom = "";
+  musicPlayerEl.style.position = "";
+  musicPlayerEl.style.transform = "";
+}
 document.querySelectorAll(".draggable").forEach(makeDraggable);
 
 function makeDraggable(element) {
@@ -980,14 +999,22 @@ function makeDraggable(element) {
 
 /* Audio Local */
 const localAudio = $("#localAudio");
+const volumeWrap = $("#musicPlayer .volume");
 let wantedVolume = Number($("#volumeSlider").value) / 100;
 
 function setMusicState(text) {
   $("#musicState").textContent = text;
 }
 
+function syncVolumeLabel() {
+  if (volumeWrap) volumeWrap.dataset.value = `${Math.round(wantedVolume * 100)}%`;
+  const volumeSlider = $("#volumeSlider");
+  if (volumeSlider) volumeSlider.style.setProperty("--volume-fill", `${Math.round(wantedVolume * 100)}%`);
+}
+
 if (localAudio) {
   localAudio.volume = wantedVolume;
+  syncVolumeLabel();
 
   localAudio.addEventListener("play", () => {
     setMusicState("reproduciendo");
@@ -1025,6 +1052,7 @@ $("#pauseBtn").addEventListener("click", () => {
 $("#volumeSlider").addEventListener("input", event => {
   wantedVolume = Number(event.target.value) / 100;
   if (localAudio) localAudio.volume = wantedVolume;
+  syncVolumeLabel();
 });
 
 function showToast(message) {
@@ -1037,59 +1065,9 @@ function showToast(message) {
   }, 3200);
 }
 
-async function updateRamMonitor() {
-  if (ramMonitorBusy) return;
-  ramMonitorBusy = true;
-
-  try {
-    if ("measureUserAgentSpecificMemory" in performance) {
-      const result = await performance.measureUserAgentSpecificMemory();
-      const usedMb = bytesToMb(result.bytes);
-      const percent = getPageMemoryPercent(usedMb);
-
-      ramValue.textContent = `${usedMb} MB`;
-      ramStatus.textContent = "page est";
-      ramBar.style.width = `${percent}%`;
-      return;
-    }
-
-    const memory = performance.memory;
-
-    if (!memory) {
-      ramValue.textContent = "-- MB";
-      ramStatus.textContent = "no data";
-      ramBar.style.width = "18%";
-      return;
-    }
-
-    const usedMb = bytesToMb(memory.usedJSHeapSize);
-    const limitMb = bytesToMb(memory.jsHeapSizeLimit);
-    const percent = Math.max(2, Math.min(100, Math.round((usedMb / limitMb) * 100)));
-
-    ramValue.textContent = `${usedMb} MB`;
-    ramStatus.textContent = "js heap";
-    ramBar.style.width = `${percent}%`;
-  } catch (error) {
-    console.warn(error);
-    ramValue.textContent = "-- MB";
-    ramStatus.textContent = "blocked";
-    ramBar.style.width = "18%";
-  } finally {
-    ramMonitorBusy = false;
-  }
-}
-
 /* Helpers */
-function bytesToMb(bytes = 0) {
-  return Math.round(bytes / 1024 / 1024);
-}
-
 function timestampValue(value) {
   return typeof value === "number" ? value : 0;
-}
-
-function getPageMemoryPercent(usedMb) {
-  return Math.max(4, Math.min(100, Math.round((usedMb / 256) * 100)));
 }
 
 function normalizeUrl(url) {
