@@ -4,8 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TOSHIRO LINKS</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <meta name="description" content="Repositorio personal de links — Yamir Rojo" />
+  <meta name="theme-color" content="#03040a" />
+  <meta property="og:title" content="TOSHIRO LINKS" />
+  <meta property="og:description" content="Repositorio personal de links — Yamir Rojo" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="./favicon.png" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="stylesheet" href="./styles.css?v=oklch-colors-4" />
   <link rel="icon" href="./favicon.png" type="image/png" />
+  <link rel="apple-touch-icon" href="./favicon.png" />
+  <link rel="manifest" href="./manifest.webmanifest" />
 
   <script type="importmap">
   {
@@ -20,10 +29,16 @@
 </head>
 
 <body>
-  <video id="pageBackgroundVideo" class="page-background-video" autoplay muted loop playsinline aria-hidden="true">
-    <source src="./loop.mp4" type="video/mp4" />
-  </video>
-
+  <div class="bg-stack" aria-hidden="true">
+    <div class="bg-tint"></div>
+    <div class="bg-noise"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-glitch"></div>
+  </div>
+  <div class="vhs-lines" aria-hidden="true"></div>
+  <div class="dither" aria-hidden="true"></div>
+  <div class="vignette" aria-hidden="true"></div>
+  <a class="skip-link" href="#repo">saltar al contenido</a>
 
   <!-- Botón admin aesthetic -->
   <button id="adminLock" type="button" title="Admin">
@@ -65,19 +80,32 @@
   </button>
 
   <header class="hero glass">
-    <p class="eyebrow">Hola Tonotos</p>
-    <h1>Repositorio</h1>
-    <p class="subtitle">Yamir Rojo</p>
+    <p class="eyebrow"><span class="kanji">死の天使</span> · <span class="kanji">歓迎・馬鹿達</span> · <span class="kanji">夢</span></p>
+    <h1 data-text="REPOSITORIO">REPOSITORIO</h1>
+    <p class="subtitle">▓▒░ <span class="handle">Sykron</span> · <span id="liveClock">cargando…</span> ░▒▓</p>
   </header>
 
   <section class="toolbar glass">
+    <div class="toolbar-search">
+      <input id="searchInput" type="search" placeholder="buscar links (/)" autocomplete="off" />
+      <button id="clearSearchBtn" type="button" class="clear-search hidden" aria-label="Limpiar búsqueda">×</button>
+    </div>
+
     <div id="filters" class="filters">
     </div>
 
     <div class="toolbar-actions">
+      <div class="view-modes" role="tablist" aria-label="Vista">
+        <button type="button" class="view-mode active" data-view="grid" title="Grid">▦</button>
+        <button type="button" class="view-mode" data-view="list" title="Lista">≡</button>
+        <button type="button" class="view-mode" data-view="compact" title="Compacta">▤</button>
+      </div>
       <button id="addCategoryBtn" type="button" class="add hidden">+ categoria</button>
       <button id="editCategoryBtn" type="button" class="add hidden">editar categorias</button>
       <button id="addLinkBtn" type="button" class="add hidden">+ link</button>
+      <button id="bulkAddBtn" type="button" class="add hidden">+ bulk</button>
+      <button id="exportBtn" type="button" class="add hidden">exportar</button>
+      <button id="importBtn" type="button" class="add hidden">importar</button>
       <button id="notesToggleBtn" type="button" class="add">notas</button>
     </div>
   </section>
@@ -115,6 +143,38 @@
       <select id="categoryInput" required></select>
 
       <button id="saveLinkBtn" type="submit">guardar</button>
+    </form>
+  </section>
+
+  <!-- Bulk add -->
+  <section id="bulkEditor" class="modal glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span>bulk.links</span>
+      <button id="closeBulkEditor" type="button">×</button>
+    </div>
+
+    <form id="bulkForm" class="modal-body">
+      <select id="bulkCategoryInput" required></select>
+      <textarea id="bulkInput" placeholder="Una URL por línea. Opcional: Titulo | https://sitio.com" rows="8" required></textarea>
+      <button id="saveBulkBtn" type="submit">guardar todos</button>
+      <small id="bulkMsg">Una línea por link. Acepta solo URL o "Titulo | URL".</small>
+    </form>
+  </section>
+
+  <!-- Import -->
+  <section id="importEditor" class="modal glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span>import.json</span>
+      <button id="closeImportEditor" type="button">×</button>
+    </div>
+
+    <form id="importForm" class="modal-body">
+      <textarea id="importInput" placeholder='Pega JSON con {"links":[...],"categories":[...]} o array de links' rows="9" required></textarea>
+      <label class="import-merge">
+        <input id="importMerge" type="checkbox" checked /> fusionar (no borrar lo actual)
+      </label>
+      <button id="saveImportBtn" type="submit">importar</button>
+      <small id="importMsg">Acepta export propio o array simple de links.</small>
     </form>
   </section>
 
@@ -165,18 +225,49 @@
         alt="Miniatura del audio"
       />
       <button id="thumbPlayBtn" class="thumb-overlay" type="button" aria-label="Reproducir música">▶</button>
-      <audio id="localAudio" src="./music.mp3" loop autoplay></audio>
+      <audio id="localAudio" src="./music.mp3" loop autoplay muted preload="auto" playsinline></audio>
       <p>beach static signal</p>
     </div>
 
     <div class="music-controls">
+      <button id="prevTrackBtn" type="button" aria-label="Anterior">⏮</button>
       <button id="playBtn" type="button" aria-label="Reproducir">▶️</button>
       <button id="pauseBtn" type="button" aria-label="Pausar">⏸️</button>
+      <button id="nextTrackBtn" type="button" aria-label="Siguiente">⏭</button>
+      <button id="tracksToggleBtn" type="button" aria-label="Lista" title="Lista de pistas">☰</button>
+
+      <div class="track-info">
+        <span id="trackTitle" class="track-title">beach static signal</span>
+        <span id="trackTime" class="track-time">0:00 / 0:00</span>
+      </div>
+
+      <label class="seek">
+        <input id="seekSlider" type="range" min="0" max="1000" value="0" step="1" aria-label="Posición" />
+      </label>
 
       <label class="volume">
         <span>volumen</span>
-        <input id="volumeSlider" type="range" min="0" max="100" value="45" />
+        <input id="volumeSlider" type="range" min="0" max="100" value="10" disabled />
       </label>
+    </div>
+  </section>
+
+  <!-- Tracks panel -->
+  <section id="tracksPanel" class="tracks-panel glass hidden draggable">
+    <div class="modal-head drag-handle">
+      <span>tracks.list</span>
+      <button id="closeTracksPanel" type="button">×</button>
+    </div>
+
+    <div class="modal-body">
+      <div id="tracksList" class="tracks-list"></div>
+
+      <form id="trackForm" class="track-form hidden">
+        <input id="trackTitleInput" placeholder="Título" required />
+        <input id="trackUrlInput" placeholder="https://... .mp3" required />
+        <button type="submit">+ pista</button>
+        <small id="trackMsg">Pega una URL directa a un .mp3 / audio.</small>
+      </form>
     </div>
   </section>
 
@@ -208,7 +299,7 @@
     <span id="firebaseStatus">Firebase: iniciando...</span>
   </footer>
 
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=oklch-colors-4"></script>
 </body>
 </html>
 

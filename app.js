@@ -51,8 +51,8 @@ const categoryInput = $("#categoryInput");
 const linksRef = ref(db, "links");
 const categoriesRef = ref(db, "categories");
 const notesRef = ref(db, "notes");
+const tracksRef = ref(db, "tracks");
 const musicPlayerEl = $("#musicPlayer");
-const pageBackgroundVideo = $("#pageBackgroundVideo");
 const notesWin = $("#notesWin");
 const noteForm = $("#noteForm");
 const noteTitle = $("#noteTitle");
@@ -81,22 +81,60 @@ let editingId = null;
 let categoryEditorMode = "create";
 let editingCategoryName = null;
 let managingCategoryName = null;
+let searchQuery = "";
+let viewMode = localStorage.getItem("toshiro-view") || "grid";
+let lastDeletedLink = null;
+let undoTimer = null;
 
-if (pageBackgroundVideo) {
-  const restartBackgroundVideo = async () => {
-    try {
-      pageBackgroundVideo.pause();
-      pageBackgroundVideo.currentTime = 0;
-      const playPromise = pageBackgroundVideo.play();
-      if (playPromise?.catch) await playPromise.catch(() => {});
-    } catch (error) {
-      console.warn(error);
-    }
+const LS_PINS = "toshiro-pins";
+const LS_CLICKS = "toshiro-clicks";
+const LS_VOL = "toshiro-volume";
+
+function loadJSON(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+  catch { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+let pins = new Set(loadJSON(LS_PINS, []));
+let clicks = loadJSON(LS_CLICKS, {});
+
+/* Cybercore fixed — theme cycle removed */
+
+/* Video background eliminated for performance */
+
+/* Live Chile clock (es-CL, America/Santiago) */
+(() => {
+  const el = document.getElementById("liveClock");
+  if (!el) return;
+
+  const dayFmt = new Intl.DateTimeFormat("es-CL", {
+    timeZone: "America/Santiago",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+  const timeFmt = new Intl.DateTimeFormat("es-CL", {
+    timeZone: "America/Santiago",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+
+  const tick = () => {
+    const now = new Date();
+    const date = dayFmt.format(now).replace(/\./g, "").toUpperCase();
+    const time = timeFmt.format(now);
+    el.textContent = `${date} · ${time} CLT`;
   };
 
-  pageBackgroundVideo.addEventListener("loadedmetadata", restartBackgroundVideo, { once: true });
-  window.addEventListener("load", restartBackgroundVideo, { once: true });
-}
+  tick();
+  setInterval(tick, 1000);
+})();
 
 /* Auth */
 onAuthStateChanged(auth, currentUser => {
@@ -106,6 +144,9 @@ onAuthStateChanged(auth, currentUser => {
   addLinkBtn.classList.toggle("hidden", !user);
   addCategoryBtn.classList.toggle("hidden", !user);
   editCategoryBtn.classList.toggle("hidden", !user);
+  $("#bulkAddBtn").classList.toggle("hidden", !user);
+  $("#exportBtn").classList.toggle("hidden", !user);
+  $("#importBtn").classList.toggle("hidden", !user);
   logoutBtn.classList.toggle("hidden", !user);
   adminLock.classList.toggle("hidden", Boolean(user));
   adminLock.setAttribute("aria-expanded", "false");
@@ -204,13 +245,19 @@ function getVisibleLinks() {
 }
 
 function filterLinks(links) {
+  const q = normal(searchQuery).trim();
+
   return links.filter(link => {
     const category = normal(link.category || "misc");
 
     const matchesFilter =
       currentFilter === "todos" || category === normal(currentFilter);
 
-    return matchesFilter;
+    if (!matchesFilter) return false;
+    if (!q) return true;
+
+    const haystack = normal(`${link.title || ""} ${link.url || ""} ${link.category || ""}`);
+    return haystack.includes(q);
   });
 }
 
@@ -404,23 +451,43 @@ notesList.addEventListener("click", async event => {
 });
 
 /* Render */
+function categoryColor(index) {
+  const hue = Math.round((index * 137.508) % 360);
+  const s = index % 3;
+  const L = s === 0 ? "70%" : s === 1 ? "83%" : "57%";
+  const C = s === 0 ? "0.21" : s === 1 ? "0.15" : "0.24";
+  return `oklch(${L} ${C} ${hue})`;
+}
+
 function renderLinks(links) {
+  repo.classList.toggle("view-grid", viewMode === "grid");
+  repo.classList.toggle("view-list", viewMode === "list");
+  repo.classList.toggle("view-compact", viewMode === "compact");
+
   if (!links.length) {
-    repo.innerHTML = `
-      <section class="glass empty">
-        No hay links todavía. ${user ? "Pulsa + link para crear el primero." : ""}
-      </section>
-    `;
+    const msg = searchQuery
+      ? `No hay resultados para "${escapeHtml(searchQuery)}".`
+      : `No hay links todavía. ${user ? "Pulsa + link para crear el primero." : ""}`;
+    repo.innerHTML = `<section class="glass empty">${msg}</section>`;
     return;
   }
 
   const groups = {};
+  const pinnedGroup = [];
 
   links.forEach(link => {
+    if (pins.has(link.id)) {
+      pinnedGroup.push(link);
+      return;
+    }
     const category = link.category?.trim() || "misc";
     if (!groups[category]) groups[category] = [];
     groups[category].push(link);
   });
+
+  const sortByUsage = (a, b) => (clicks[b.id] || 0) - (clicks[a.id] || 0);
+  pinnedGroup.sort(sortByUsage);
+  Object.values(groups).forEach(arr => arr.sort(sortByUsage));
 
   const order = getCategoryOptions();
 
@@ -435,12 +502,89 @@ function renderLinks(links) {
     return ia - ib;
   });
 
-  repo.innerHTML = sortedGroups.map(([category, items]) => `
-    <section class="category glass">
+  const pinnedSection = pinnedGroup.length
+    ? `<section class="category glass" style="--category-title-color:#ffd700;--category-border-color:#ffd700"><h2>★ fijados</h2>${pinnedGroup.map(linkTemplate).join("")}</section>`
+    : "";
+
+  repo.innerHTML = pinnedSection + sortedGroups.map(([category, items], index) => {
+    const color = categoryColor(index);
+    return `
+    <section class="category glass" style="--category-title-color:${color};--category-border-color:${color}">
       <h2>${escapeHtml(category)}</h2>
       ${items.map(linkTemplate).join("")}
     </section>
-  `).join("");
+  `;
+  }).join("");
+
+  const totalSections = sortedGroups.length + (pinnedGroup.length ? 1 : 0);
+  repo.classList.toggle("single-cat", totalSections === 1);
+
+  scheduleRepoLayout();
+}
+
+let repoLayoutTimer = null;
+
+function getRepoColumnCount() {
+  if (!repo || viewMode === "list") return 1;
+
+  const gap = 10;
+  const minWidth = viewMode === "compact" ? 240 : 280;
+  const available = repo.clientWidth || repo.getBoundingClientRect().width || 0;
+  if (!available) return 1;
+
+  return Math.max(1, Math.floor((available + gap) / (minWidth + gap)));
+}
+
+function applyRepoLayout() {
+  if (!repo) return;
+
+  const categories = [...repo.querySelectorAll(".category")];
+  if (!categories.length) return;
+  if (viewMode === "list") return;
+  if (categories.length === 1) return;
+
+  const columnCount = getRepoColumnCount();
+  if (columnCount <= 1) return;
+
+  const categoryData = categories.map(category => ({
+    node: category,
+    height: category.getBoundingClientRect().height
+  })).sort((a, b) => b.height - a.height);
+
+  const columnsWrap = document.createElement("div");
+  columnsWrap.className = "repo-columns";
+
+  const columns = Array.from({ length: columnCount }, () => {
+    const col = document.createElement("div");
+    col.className = "repo-col";
+    columnsWrap.appendChild(col);
+    return col;
+  });
+
+  const heights = new Array(columnCount).fill(0);
+
+  categoryData.forEach(({ node, height }) => {
+    let targetIndex = 0;
+
+    for (let i = 1; i < heights.length; i += 1) {
+      if (heights[i] < heights[targetIndex]) targetIndex = i;
+    }
+
+    columns[targetIndex].appendChild(node);
+    heights[targetIndex] += height + 10;
+  });
+
+  repo.innerHTML = "";
+  repo.appendChild(columnsWrap);
+}
+
+function scheduleRepoLayout() {
+  clearTimeout(repoLayoutTimer);
+  repoLayoutTimer = setTimeout(() => {
+    requestAnimationFrame(() => {
+      applyRepoLayout();
+    });
+  }, 40);
 }
 
 function renderNotes() {
@@ -507,37 +651,58 @@ function linkTemplate(link) {
   const host = getHost(link.url);
   const favicon = `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
   const canManage = Boolean(user);
+  const pinned = pins.has(link.id);
+  const count = clicks[link.id] || 0;
 
   return `
-    <article class="link-card">
-      <a class="link-main" href="${escapeAttr(link.url)}" target="_blank" rel="noopener">
+    <article class="link-card${pinned ? " pinned" : ""}">
+      <a class="link-main" href="${escapeAttr(link.url)}" target="_blank" rel="noopener" data-link="${escapeAttr(link.id)}">
         <span class="link-icon" aria-hidden="true">
-          <img src="${favicon}" alt="">
+          <img src="${favicon}" alt="" loading="lazy" onerror="this.style.opacity='.3'">
         </span>
         <span class="link-text">
           <b>${escapeHtml(link.title)}</b>
-          <small>${escapeHtml(host)}</small>
+          <small>${escapeHtml(host)}${count ? ` <span class="link-meta">· ${count}</span>` : ""}</small>
         </span>
       </a>
 
-      ${
-        canManage
-          ? `
-            <div class="actions">
-              <button type="button" data-edit="${escapeAttr(link.id)}" title="Editar link">editar</button>
-              <button type="button" class="delete" data-delete="${escapeAttr(link.id)}" title="Eliminar link">borrar</button>
-            </div>
-          `
-          : ""
-      }
+      <div class="actions">
+        <button type="button" class="pin-btn${pinned ? " active" : ""}" data-pin="${escapeAttr(link.id)}" title="Fijar" aria-label="Fijar">★</button>
+        <button type="button" class="copy-btn" data-copy-url="${escapeAttr(link.url)}" title="Copiar URL">⧉</button>
+        ${
+          canManage
+            ? `<button type="button" data-edit="${escapeAttr(link.id)}" title="Editar link">editar</button>
+               <button type="button" class="delete" data-delete="${escapeAttr(link.id)}" title="Eliminar link">borrar</button>`
+            : ""
+        }
+      </div>
     </article>
   `;
 }
 
-/* Editar / borrar: delegación */
+/* Editar / borrar / pin / copy / track: delegación */
 repo.addEventListener("click", async event => {
   const editButton = event.target.closest("[data-edit]");
   const deleteButton = event.target.closest("[data-delete]");
+  const pinButton = event.target.closest("[data-pin]");
+  const copyButton = event.target.closest("[data-copy-url]");
+  const linkAnchor = event.target.closest("[data-link]");
+
+  if (pinButton) {
+    event.preventDefault();
+    const id = pinButton.dataset.pin;
+    if (pins.has(id)) pins.delete(id); else pins.add(id);
+    saveJSON(LS_PINS, [...pins]);
+    renderLinks(getVisibleLinks());
+    return;
+  }
+
+  if (copyButton) {
+    event.preventDefault();
+    await copyText(copyButton.dataset.copyUrl);
+    showToast("URL copiada.");
+    return;
+  }
 
   if (editButton) {
     event.preventDefault();
@@ -554,10 +719,19 @@ repo.addEventListener("click", async event => {
     event.preventDefault();
     if (!user) return;
 
-    const ok = confirm("¿Eliminar este link?");
-    if (!ok) return;
+    const link = liveLinks.find(item => item.id === deleteButton.dataset.delete);
+    if (!link) return;
 
-    await remove(ref(db, `links/${deleteButton.dataset.delete}`));
+    lastDeletedLink = link;
+    await remove(ref(db, `links/${link.id}`));
+    showUndoToast(`Link "${link.title}" borrado.`);
+    return;
+  }
+
+  if (linkAnchor) {
+    const id = linkAnchor.dataset.link;
+    clicks[id] = (clicks[id] || 0) + 1;
+    saveJSON(LS_CLICKS, clicks);
   }
 });
 
@@ -1000,7 +1174,13 @@ function makeDraggable(element) {
 /* Audio Local */
 const localAudio = $("#localAudio");
 const volumeWrap = $("#musicPlayer .volume");
-let wantedVolume = Number($("#volumeSlider").value) / 100;
+const FIXED_MUSIC_VOLUME = 0.1;
+$("#volumeSlider").value = FIXED_MUSIC_VOLUME * 100;
+localStorage.setItem(LS_VOL, String(FIXED_MUSIC_VOLUME * 100));
+let wantedVolume = FIXED_MUSIC_VOLUME;
+let audioUnlockDone = false;
+let audioRetryTimer = null;
+let audioUnlockBindingDone = false;
 
 function setMusicState(text) {
   $("#musicState").textContent = text;
@@ -1030,28 +1210,259 @@ if (localAudio) {
 $("#playBtn").addEventListener("click", playMusic);
 $("#thumbPlayBtn").addEventListener("click", playMusic);
 
-function playMusic() {
+function clearAudioRetry() {
+  if (!audioRetryTimer) return;
+  clearTimeout(audioRetryTimer);
+  audioRetryTimer = null;
+}
+
+function scheduleAudioRetry() {
+  if (audioUnlockDone) return;
+  clearAudioRetry();
+  audioRetryTimer = setTimeout(() => {
+    startMusicOnLoad();
+  }, 1200);
+}
+
+function unlockAudibleMusic() {
   if (!localAudio) return;
-  localAudio.volume = wantedVolume;
-  localAudio.play().then(() => {
+  clearAudioRetry();
+  localAudio.muted = false;
+  localAudio.volume = FIXED_MUSIC_VOLUME;
+  return localAudio.play().then(() => {
+    audioUnlockDone = true;
     setMusicState("reproduciendo");
   }).catch(error => {
     console.error(error);
-    setMusicState("error");
+    audioUnlockDone = false;
+    localAudio.muted = true;
+    localAudio.volume = FIXED_MUSIC_VOLUME;
+    setMusicState("reproduciendo");
+    scheduleAudioRetry();
   });
 }
 
+function handleFirstSoundIntent() {
+  if (audioUnlockDone) return;
+  unlockAudibleMusic();
+}
+
+function bindGlobalAudioUnlock() {
+  if (audioUnlockBindingDone) return;
+  audioUnlockBindingDone = true;
+
+  ["pointerdown", "touchstart", "keydown", "click"].forEach(eventName => {
+    window.addEventListener(eventName, handleFirstSoundIntent, {
+      capture: true,
+      passive: true
+    });
+  });
+}
+
+function startMusicOnLoad() {
+  if (!localAudio || audioUnlockDone) return;
+  localAudio.muted = true;
+  localAudio.volume = FIXED_MUSIC_VOLUME;
+  localAudio.play().then(() => {
+    setMusicState("reproduciendo");
+    requestAnimationFrame(() => unlockAudibleMusic());
+  }).catch(() => {
+    localAudio.muted = true;
+    localAudio.volume = FIXED_MUSIC_VOLUME;
+    localAudio.play().then(() => {
+      setMusicState("reproduciendo");
+      scheduleAudioRetry();
+    }).catch(() => {
+      setMusicState("esperando audio");
+      scheduleAudioRetry();
+    });
+  });
+}
+
+function playMusic() {
+  return unlockAudibleMusic();
+}
+
+bindGlobalAudioUnlock();
+
 window.addEventListener("load", () => {
-  setTimeout(playMusic, 1200);
+  startMusicOnLoad();
+  setTimeout(startMusicOnLoad, 600);
 });
 
 $("#pauseBtn").addEventListener("click", () => {
   if (localAudio) localAudio.pause();
 });
 
+/* Tracks + seek */
+const DEFAULT_TRACK = { id: "__default", title: "beach static signal", url: "./music.mp3", builtin: true };
+let liveTracks = [];
+let allTracks = [DEFAULT_TRACK];
+let currentTrackIndex = Number(localStorage.getItem("toshiro-track-idx")) || 0;
+let seekDragging = false;
+
+const seekSlider = $("#seekSlider");
+const trackTitleEl = $("#trackTitle");
+const trackTimeEl = $("#trackTime");
+const tracksPanel = $("#tracksPanel");
+const tracksList = $("#tracksList");
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds)) return "0:00";
+  const s = Math.floor(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+let tracksInitialized = false;
+function rebuildTracks() {
+  allTracks = [DEFAULT_TRACK, ...liveTracks];
+  if (currentTrackIndex >= allTracks.length) currentTrackIndex = 0;
+  localAudio.loop = allTracks.length === 1;
+  renderTracksList();
+  updateTrackInfo();
+  if (!tracksInitialized && currentTrackIndex > 0) {
+    tracksInitialized = true;
+    loadTrack(currentTrackIndex, false);
+  } else {
+    tracksInitialized = true;
+  }
+}
+
+function updateTrackInfo() {
+  const track = allTracks[currentTrackIndex] || DEFAULT_TRACK;
+  trackTitleEl.textContent = track.title || "sin título";
+}
+
+function loadTrack(index, autoplay = true) {
+  if (!allTracks.length) return;
+  currentTrackIndex = (index + allTracks.length) % allTracks.length;
+  localStorage.setItem("toshiro-track-idx", currentTrackIndex);
+
+  const track = allTracks[currentTrackIndex];
+  const wasPlaying = !localAudio.paused;
+  localAudio.src = track.url;
+  localAudio.muted = false;
+  localAudio.volume = FIXED_MUSIC_VOLUME;
+  updateTrackInfo();
+  renderTracksList();
+
+  if (autoplay || wasPlaying) {
+    localAudio.play().catch(() => setMusicState("error"));
+  }
+}
+
+function renderTracksList() {
+  if (!tracksList) return;
+  const canManage = Boolean(user);
+
+  tracksList.innerHTML = allTracks.map((track, i) => `
+    <article class="track-row${i === currentTrackIndex ? " active" : ""}" data-track-idx="${i}">
+      <b>${escapeHtml(track.title || "sin título")}</b>
+      ${!track.builtin && canManage ? `<button type="button" class="delete" data-track-delete="${escapeAttr(track.id)}">×</button>` : ""}
+    </article>
+  `).join("");
+
+  $("#trackForm").classList.toggle("hidden", !canManage);
+}
+
+onValue(tracksRef, snapshot => {
+  const data = snapshot.val();
+  liveTracks = data
+    ? Object.entries(data).map(([id, value]) => ({ id, ...value }))
+    : [];
+  rebuildTracks();
+}, () => {
+  liveTracks = [];
+  rebuildTracks();
+});
+
+$("#prevTrackBtn").addEventListener("click", () => loadTrack(currentTrackIndex - 1));
+$("#nextTrackBtn").addEventListener("click", () => loadTrack(currentTrackIndex + 1));
+
+$("#tracksToggleBtn").addEventListener("click", () => {
+  tracksPanel.classList.toggle("hidden");
+  if (!tracksPanel.classList.contains("hidden")) renderTracksList();
+});
+
+$("#closeTracksPanel").addEventListener("click", event => {
+  event.preventDefault();
+  tracksPanel.classList.add("hidden");
+});
+
+tracksList.addEventListener("click", async event => {
+  const deleteBtn = event.target.closest("[data-track-delete]");
+  if (deleteBtn) {
+    event.stopPropagation();
+    if (!user) return;
+    if (!confirm("¿Borrar esta pista?")) return;
+    await remove(ref(db, `tracks/${deleteBtn.dataset.trackDelete}`));
+    return;
+  }
+
+  const row = event.target.closest("[data-track-idx]");
+  if (!row) return;
+  loadTrack(Number(row.dataset.trackIdx));
+});
+
+$("#trackForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!user) return;
+
+  const title = $("#trackTitleInput").value.trim();
+  const url = $("#trackUrlInput").value.trim();
+  if (!title || !url) return;
+
+  await push(tracksRef, {
+    title,
+    url,
+    createdAt: serverTimestamp()
+  });
+
+  $("#trackForm").reset();
+  showToast(`Pista "${title}" agregada.`);
+});
+
+localAudio.addEventListener("timeupdate", () => {
+  if (seekDragging) return;
+  const duration = localAudio.duration || 0;
+  const current = localAudio.currentTime || 0;
+  const pct = duration > 0 ? (current / duration) * 1000 : 0;
+  seekSlider.value = pct;
+  seekSlider.style.setProperty("--seek-fill", `${pct / 10}%`);
+  trackTimeEl.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+});
+
+localAudio.addEventListener("loadedmetadata", () => {
+  trackTimeEl.textContent = `0:00 / ${formatTime(localAudio.duration)}`;
+});
+
+localAudio.addEventListener("ended", () => {
+  if (allTracks.length > 1) loadTrack(currentTrackIndex + 1);
+});
+
+seekSlider.addEventListener("input", event => {
+  seekDragging = true;
+  const pct = Number(event.target.value) / 1000;
+  seekSlider.style.setProperty("--seek-fill", `${pct * 100}%`);
+  if (localAudio.duration) {
+    trackTimeEl.textContent = `${formatTime(localAudio.duration * pct)} / ${formatTime(localAudio.duration)}`;
+  }
+});
+
+seekSlider.addEventListener("change", event => {
+  const pct = Number(event.target.value) / 1000;
+  if (localAudio.duration) localAudio.currentTime = localAudio.duration * pct;
+  seekDragging = false;
+});
+
 $("#volumeSlider").addEventListener("input", event => {
-  wantedVolume = Number(event.target.value) / 100;
-  if (localAudio) localAudio.volume = wantedVolume;
+  event.target.value = FIXED_MUSIC_VOLUME * 100;
+  wantedVolume = FIXED_MUSIC_VOLUME;
+  if (localAudio) {
+    localAudio.muted = false;
+    localAudio.volume = FIXED_MUSIC_VOLUME;
+  }
+  localStorage.setItem(LS_VOL, String(FIXED_MUSIC_VOLUME * 100));
   syncVolumeLabel();
 });
 
@@ -1063,6 +1474,267 @@ function showToast(message) {
   showToast.timer = setTimeout(() => {
     sessionToast.classList.add("hidden");
   }, 3200);
+}
+
+function showUndoToast(message) {
+  sessionToast.innerHTML = "";
+  const text = document.createElement("span");
+  text.textContent = message + " ";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = "deshacer";
+  btn.style.marginLeft = "10px";
+  btn.addEventListener("click", async () => {
+    if (!lastDeletedLink || !user) return;
+    const { id, ...payload } = lastDeletedLink;
+    await update(ref(db, `links/${id}`), payload);
+    lastDeletedLink = null;
+    showToast("Link restaurado.");
+  });
+  sessionToast.appendChild(text);
+  sessionToast.appendChild(btn);
+  sessionToast.classList.remove("hidden");
+
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => {
+    sessionToast.classList.add("hidden");
+    lastDeletedLink = null;
+  }, 6000);
+}
+
+/* Search */
+const searchInput = $("#searchInput");
+const clearSearchBtn = $("#clearSearchBtn");
+
+searchInput.addEventListener("input", event => {
+  searchQuery = event.target.value;
+  clearSearchBtn.classList.toggle("hidden", !searchQuery);
+  renderLinks(getVisibleLinks());
+});
+
+clearSearchBtn.addEventListener("click", () => {
+  searchQuery = "";
+  searchInput.value = "";
+  clearSearchBtn.classList.add("hidden");
+  renderLinks(getVisibleLinks());
+  searchInput.focus();
+});
+
+/* View mode */
+document.querySelectorAll(".view-mode").forEach(btn => {
+  if (btn.dataset.view === viewMode) {
+    document.querySelectorAll(".view-mode").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+  }
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".view-mode").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    viewMode = btn.dataset.view;
+    localStorage.setItem("toshiro-view", viewMode);
+    renderLinks(getVisibleLinks());
+  });
+});
+
+window.addEventListener("resize", () => {
+  scheduleRepoLayout();
+});
+
+/* Theme cycling removed — cybercore fixed */
+
+/* Bulk add */
+$("#bulkAddBtn").addEventListener("click", () => {
+  const categories = getCategoryOptions();
+  $("#bulkCategoryInput").innerHTML = categories.map(c =>
+    `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`
+  ).join("");
+  $("#bulkCategoryInput").value = currentFilter !== "todos" && categories.includes(currentFilter)
+    ? currentFilter : "misc";
+  $("#bulkEditor").classList.remove("hidden");
+  $("#bulkInput").focus();
+});
+
+$("#closeBulkEditor").addEventListener("click", event => {
+  event.preventDefault();
+  $("#bulkEditor").classList.add("hidden");
+});
+
+$("#bulkForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!user) return;
+
+  const category = $("#bulkCategoryInput").value;
+  const lines = $("#bulkInput").value.split("\n").map(l => l.trim()).filter(Boolean);
+  let added = 0;
+  let failed = 0;
+
+  for (const line of lines) {
+    try {
+      let title, urlRaw;
+      if (line.includes("|")) {
+        const [t, u] = line.split("|").map(s => s.trim());
+        title = t; urlRaw = u;
+      } else {
+        urlRaw = line;
+        title = getHost(urlRaw).replace(/^www\./, "");
+      }
+      const url = normalizeUrl(urlRaw);
+      await push(linksRef, {
+        title: title || getHost(url),
+        url,
+        category,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      added++;
+    } catch (error) {
+      console.error(error);
+      failed++;
+    }
+  }
+
+  $("#bulkMsg").textContent = `Agregados: ${added}. Fallos: ${failed}.`;
+  $("#bulkInput").value = "";
+  showToast(`${added} links agregados.`);
+});
+
+/* Export */
+$("#exportBtn").addEventListener("click", () => {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    links: liveLinks,
+    categories: liveCategories,
+    notes: liveNotes
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `toshiro-links-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("Export descargado.");
+});
+
+/* Import */
+$("#importBtn").addEventListener("click", () => {
+  $("#importEditor").classList.remove("hidden");
+  $("#importInput").focus();
+});
+
+$("#closeImportEditor").addEventListener("click", event => {
+  event.preventDefault();
+  $("#importEditor").classList.add("hidden");
+});
+
+$("#importForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!user) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse($("#importInput").value);
+  } catch (error) {
+    $("#importMsg").textContent = "JSON inválido.";
+    return;
+  }
+
+  const incomingLinks = Array.isArray(parsed) ? parsed : (parsed.links || []);
+  const incomingCategories = parsed.categories || [];
+  const merge = $("#importMerge").checked;
+  let added = 0;
+
+  try {
+    if (!merge) {
+      await update(ref(db), { links: null });
+    }
+
+    for (const link of incomingLinks) {
+      if (!link.url) continue;
+      await push(linksRef, {
+        title: link.title || getHost(link.url),
+        url: normalizeUrl(link.url),
+        category: link.category || "misc",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      added++;
+    }
+
+    for (const cat of incomingCategories) {
+      if (!cat.name) continue;
+      const exists = liveCategories.some(c => normal(c.name) === normal(cat.name));
+      if (exists) continue;
+      await push(categoriesRef, {
+        name: cleanCategoryName(cat.name),
+        previousName: cat.previousName || null,
+        hidden: cat.hidden || false,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    $("#importMsg").textContent = `Importados ${added} links.`;
+    showToast(`${added} links importados.`);
+    $("#importEditor").classList.add("hidden");
+  } catch (error) {
+    console.error(error);
+    $("#importMsg").textContent = "Error al importar. Revisa reglas de Firebase.";
+  }
+});
+
+/* Keyboard shortcuts */
+document.addEventListener("keydown", event => {
+  const tag = (event.target.tagName || "").toLowerCase();
+  const typing = tag === "input" || tag === "textarea" || tag === "select" || event.target.isContentEditable;
+
+  if (event.key === "Escape") {
+    document.querySelectorAll(".modal, .notes-panel").forEach(el => {
+      if (!el.classList.contains("hidden")) el.classList.add("hidden");
+    });
+    return;
+  }
+
+  if (typing) return;
+
+  if (event.key === "/") {
+    event.preventDefault();
+    searchInput.focus();
+    searchInput.select();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "n" && user) {
+    event.preventDefault();
+    openEditor();
+    return;
+  }
+
+});
+
+/* Share target (PWA) */
+{
+  const shareParams = new URLSearchParams(location.search);
+  const sharedUrl = shareParams.get("url") || shareParams.get("text");
+  if (sharedUrl) {
+    let consumed = false;
+    const unsub = onAuthStateChanged(auth, currentUser => {
+      if (!currentUser || consumed) return;
+      consumed = true;
+      setTimeout(() => {
+        openEditor();
+        $("#urlInput").value = sharedUrl;
+        $("#titleInput").value = shareParams.get("title") || "";
+      }, 200);
+      unsub();
+      history.replaceState({}, "", location.pathname);
+    });
+  }
+}
+
+/* Service worker */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
 }
 
 /* Helpers */
