@@ -88,7 +88,6 @@ let undoTimer = null;
 
 const LS_PINS = "toshiro-pins";
 const LS_CLICKS = "toshiro-clicks";
-const LS_VOL = "toshiro-volume";
 
 function loadJSON(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
@@ -100,10 +99,6 @@ function saveJSON(key, value) {
 
 let pins = new Set(loadJSON(LS_PINS, []));
 let clicks = loadJSON(LS_CLICKS, {});
-
-/* Cybercore fixed — theme cycle removed */
-
-/* Video background eliminated for performance */
 
 /* Live Chile clock (es-CL, America/Santiago) */
 (() => {
@@ -1176,24 +1171,22 @@ const localAudio = $("#localAudio");
 const volumeWrap = $("#musicPlayer .volume");
 const FIXED_MUSIC_VOLUME = 0.1;
 $("#volumeSlider").value = FIXED_MUSIC_VOLUME * 100;
-localStorage.setItem(LS_VOL, String(FIXED_MUSIC_VOLUME * 100));
-let wantedVolume = FIXED_MUSIC_VOLUME;
 let audioUnlockDone = false;
 let audioRetryTimer = null;
-let audioUnlockBindingDone = false;
 
 function setMusicState(text) {
   $("#musicState").textContent = text;
 }
 
 function syncVolumeLabel() {
-  if (volumeWrap) volumeWrap.dataset.value = `${Math.round(wantedVolume * 100)}%`;
+  const pct = `${Math.round(FIXED_MUSIC_VOLUME * 100)}%`;
+  if (volumeWrap) volumeWrap.dataset.value = pct;
   const volumeSlider = $("#volumeSlider");
-  if (volumeSlider) volumeSlider.style.setProperty("--volume-fill", `${Math.round(wantedVolume * 100)}%`);
+  if (volumeSlider) volumeSlider.style.setProperty("--volume-fill", pct);
 }
 
 if (localAudio) {
-  localAudio.volume = wantedVolume;
+  localAudio.volume = FIXED_MUSIC_VOLUME;
   syncVolumeLabel();
 
   localAudio.addEventListener("play", () => {
@@ -1207,8 +1200,8 @@ if (localAudio) {
   });
 }
 
-$("#playBtn").addEventListener("click", playMusic);
-$("#thumbPlayBtn").addEventListener("click", playMusic);
+$("#playBtn").addEventListener("click", unlockAudibleMusic);
+$("#thumbPlayBtn").addEventListener("click", unlockAudibleMusic);
 
 function clearAudioRetry() {
   if (!audioRetryTimer) return;
@@ -1242,20 +1235,12 @@ function unlockAudibleMusic() {
   });
 }
 
-function handleFirstSoundIntent() {
-  if (audioUnlockDone) return;
-  unlockAudibleMusic();
-}
-
 function bindGlobalAudioUnlock() {
-  if (audioUnlockBindingDone) return;
-  audioUnlockBindingDone = true;
-
   ["pointerdown", "touchstart", "keydown", "click"].forEach(eventName => {
-    window.addEventListener(eventName, handleFirstSoundIntent, {
-      capture: true,
-      passive: true
-    });
+    window.addEventListener(eventName, () => {
+      if (audioUnlockDone) return;
+      unlockAudibleMusic();
+    }, { capture: true, passive: true });
   });
 }
 
@@ -1277,10 +1262,6 @@ function startMusicOnLoad() {
       scheduleAudioRetry();
     });
   });
-}
-
-function playMusic() {
-  return unlockAudibleMusic();
 }
 
 bindGlobalAudioUnlock();
@@ -1457,12 +1438,10 @@ seekSlider.addEventListener("change", event => {
 
 $("#volumeSlider").addEventListener("input", event => {
   event.target.value = FIXED_MUSIC_VOLUME * 100;
-  wantedVolume = FIXED_MUSIC_VOLUME;
   if (localAudio) {
     localAudio.muted = false;
     localAudio.volume = FIXED_MUSIC_VOLUME;
   }
-  localStorage.setItem(LS_VOL, String(FIXED_MUSIC_VOLUME * 100));
   syncVolumeLabel();
 });
 
@@ -1538,8 +1517,6 @@ document.querySelectorAll(".view-mode").forEach(btn => {
 window.addEventListener("resize", () => {
   scheduleRepoLayout();
 });
-
-/* Theme cycling removed — cybercore fixed */
 
 /* Bulk add */
 $("#bulkAddBtn").addEventListener("click", () => {

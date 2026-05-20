@@ -74,9 +74,6 @@ body {
   animation: bgDrift 54s ease-in-out infinite alternate;
 }
 
-/* Fog layer removed — was overwhelming the look */
-.bg-noise { display: none; }
-
 /* Sparkle stars — diagonal drift (restored, this is the look you liked) */
 .bg-grid {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='280' height='280'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='1' seed='9'/><feColorMatrix values='0 0 0 0 0.9  0 0 0 0 0.9  0 0 0 0 1  0 0 0 8 -6'/></filter><rect width='100%25' height='100%25' filter='url(%23s)'/></svg>");
@@ -98,12 +95,6 @@ body {
 @keyframes bgDrift {
   0%   { transform: translate3d(0, 0, 0) scale(1); }
   100% { transform: translate3d(-3%, 2%, 0) scale(1.06); }
-}
-
-/* Wave pattern slow horizontal sweep + tiny vertical bob */
-@keyframes waveDrift {
-  0%   { transform: translate3d(0, 0, 0); }
-  100% { transform: translate3d(-800px, -30px, 0); }
 }
 
 /* Sparkle stars crawl diagonally */
